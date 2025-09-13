@@ -8,7 +8,7 @@ pydantic==2.5.0
 jageocoder==2.1.10
 
 # HTTP client for health checks
-requests==2.31.0
+requests==2.32.4
 
 # Additional utilities
 python-dotenv==1.0.0
