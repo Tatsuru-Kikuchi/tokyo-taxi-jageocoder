@@ -37,7 +37,7 @@ geocoder_initialized = False
 initialization_error = None
 
 def initialize_jageocoder_simple():
-    """Simplified JAGeocoder initialization without variable scope issues"""
+    """Simplified JAGeocoder initialization with proper db_dir parameter"""
     global geocoder_initialized, initialization_error
 
     if not JAGEOCODER_AVAILABLE:
@@ -45,11 +45,19 @@ def initialize_jageocoder_simple():
         logger.error("JAGeocoder module not imported - check installation")
         return False
 
-    try:
-        logger.info("Attempting simple JAGeocoder initialization...")
+    # Set up database directory
+    db_dir = "/app/jageocoder_data"
 
-        # Simple initialization without parameters
-        jageocoder.init()
+    try:
+        logger.info("Attempting JAGeocoder initialization with db_dir...")
+
+        # Create database directory if it doesn't exist
+        os.makedirs(db_dir, exist_ok=True)
+        logger.info(f"Database directory: {db_dir}")
+
+        # Initialize with database directory
+        jageocoder.init(db_dir=db_dir)
+        logger.info("JAGeocoder init() completed")
 
         # Test if it's working with a simple query
         try:
@@ -59,20 +67,45 @@ def initialize_jageocoder_simple():
                 logger.info(f"JAGeocoder working - found {len(test_results)} results for 東京駅")
                 return True
             else:
-                logger.warning("JAGeocoder initialized but returned no results for test query")
-                geocoder_initialized = True  # Still mark as initialized for basic functionality
+                logger.warning("JAGeocoder initialized but returned no results - database may be empty")
+                # Still mark as initialized since the module loaded without error
+                geocoder_initialized = True
                 return True
 
         except Exception as test_error:
-            logger.warning(f"JAGeocoder test failed but module initialized: {test_error}")
-            geocoder_initialized = True  # Mark as initialized, may work for other queries
+            logger.warning(f"JAGeocoder test query failed: {test_error}")
+            # Module initialized but test failed - may work for other queries
+            geocoder_initialized = True
             return True
 
     except Exception as init_error:
-        logger.error(f"JAGeocoder initialization completely failed: {init_error}")
+        logger.error(f"JAGeocoder initialization failed: {init_error}")
         initialization_error = str(init_error)
-        geocoder_initialized = False
-        return False
+
+        # Since the error mentioned db_dir, let's try a few more approaches
+        try:
+            logger.info("Trying alternative initialization methods...")
+
+            # Try with current working directory
+            jageocoder.init(db_dir="./jageocoder_data")
+            logger.info("JAGeocoder initialized with local directory")
+            geocoder_initialized = True
+            return True
+
+        except Exception as alt_error:
+            logger.error(f"Alternative initialization also failed: {alt_error}")
+
+            # Try without any parameters (some versions might work)
+            try:
+                jageocoder.init()
+                logger.info("JAGeocoder initialized with default parameters")
+                geocoder_initialized = True
+                return True
+            except Exception as default_error:
+                logger.error(f"Default initialization failed: {default_error}")
+                initialization_error = f"All initialization methods failed: {default_error}"
+                geocoder_initialized = False
+                return False
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate the great circle distance between two points in kilometers"""
