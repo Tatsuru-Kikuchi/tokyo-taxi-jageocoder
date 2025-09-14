@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-JAGeocoder Backend Service for Tokyo AI Taxi App - v2.0
-Fixed for JAGeocoder 2.1.10 API changes
+JAGeocoder Backend Service for Tokyo AI Taxi App - v3.0
+Fixed for FastAPI lifespan events and variable scoping
 """
 
 import os
@@ -9,6 +9,7 @@ import sys
 import time
 import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
@@ -25,27 +26,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# FastAPI app initialization
-app = FastAPI(
-    title="JAGeocoder Backend for Tokyo AI Taxi",
-    description="Precise Japanese address geocoding service",
-    version="2.0.0"
-)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Global state
 geocoder_initialized = False
 initialization_error = None
 
-def initialize_jageocoder_v2():
+def initialize_jageocoder_v3():
     """Initialize JAGeocoder with updated API for version 2.1.10"""
     global geocoder_initialized, initialization_error
 
@@ -68,37 +53,39 @@ def initialize_jageocoder_v2():
         # Try to install the database using the correct method for v2.1.10
         logger.info("Attempting to install JAGeocoder database...")
 
-        # Import the correct installer module
-        import jageocoder.install_dictionary
-
-        # Install the dictionary data
-        jageocoder.install_dictionary.install()
-
-        # Re-initialize after installation
-        jageocoder.init()
-
-        # Test again
-        test_result = jageocoder.search('東京駅')
-        if test_result and len(test_result) > 0:
-            geocoder_initialized = True
-            logger.info("JAGeocoder database installed and initialized successfully")
-            return True
-        else:
-            raise Exception("Database installation completed but geocoding still not working")
-
-    except ImportError as e:
-        logger.error(f"JAGeocoder installation module not found: {e}")
-        initialization_error = f"Installation module not available: {e}"
-
-        # Fall back to basic initialization
         try:
+            # Import the correct installer module
+            import jageocoder.install_dictionary
+
+            # Install the dictionary data
+            jageocoder.install_dictionary.install()
+
+            # Re-initialize after installation
             jageocoder.init()
-            geocoder_initialized = True
-            logger.warning("JAGeocoder initialized in basic mode - may have limited data")
-            return True
-        except Exception as basic_error:
-            logger.error(f"Basic initialization also failed: {basic_error}")
-            initialization_error = f"All initialization methods failed: {basic_error}"
+
+            # Test again
+            test_result = jageocoder.search('東京駅')
+            if test_result and len(test_result) > 0:
+                geocoder_initialized = True
+                logger.info("JAGeocoder database installed and initialized successfully")
+                return True
+            else:
+                raise Exception("Database installation completed but geocoding still not working")
+
+        except ImportError as import_error:
+            logger.error(f"JAGeocoder installation module not found: {import_error}")
+            initialization_error = f"Installation module not available: {import_error}"
+
+            # Fall back to basic initialization
+            try:
+                jageocoder.init()
+                geocoder_initialized = True
+                logger.warning("JAGeocoder initialized in basic mode - may have limited data")
+                return True
+            except Exception as basic_error:
+                logger.error(f"Basic initialization also failed: {basic_error}")
+                initialization_error = f"All initialization methods failed: {basic_error}"
+                return False
 
     except Exception as e:
         logger.error(f"JAGeocoder initialization failed: {e}")
@@ -186,18 +173,41 @@ def get_fallback_coordinates(address: str) -> Optional[Tuple[float, float]]:
 
     return None
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize JAGeocoder on startup"""
-    logger.info("Starting JAGeocoder backend service v2.0...")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern FastAPI lifespan event handler"""
+    # Startup
+    logger.info("Starting JAGeocoder backend service v3.0...")
 
     # Initialize JAGeocoder
-    success = initialize_jageocoder_v2()
+    success = initialize_jageocoder_v3()
 
     if success:
         logger.info("JAGeocoder service ready")
     else:
         logger.warning("JAGeocoder initialization failed - service running with fallback functionality")
+
+    yield
+
+    # Shutdown
+    logger.info("JAGeocoder backend service shutting down...")
+
+# FastAPI app initialization with lifespan
+app = FastAPI(
+    title="JAGeocoder Backend for Tokyo AI Taxi",
+    description="Precise Japanese address geocoding service",
+    version="3.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 async def health_check():
@@ -217,7 +227,7 @@ async def health_check():
     status = {
         "status": "healthy" if working else "degraded",
         "service": "JAGeocoder Backend",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         "jageocoder_available": True,
         "geocoder_initialized": geocoder_initialized,
@@ -343,7 +353,7 @@ async def root():
     """Service information endpoint"""
     return {
         "service": "JAGeocoder Backend for Tokyo AI Taxi",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "status": "running",
         "endpoints": [
             "/geocode/{address} - Convert address to coordinates",
